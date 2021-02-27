@@ -51,15 +51,20 @@ ShadowMap LoadShadowMap(int width, int height)
     _shadowMap.width = width;
     _shadowMap.height = height;
 
-    glGenTextures(1, &_shadowMap.depth.id);
-    glBindTexture(GL_TEXTURE_2D, _shadowMap.depth.id);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, width, height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
-    rlTextureParameters(_shadowMap.depth.id, RL_TEXTURE_WRAP_S, RL_WRAP_CLAMP);
-    rlTextureParameters(_shadowMap.depth.id, RL_TEXTURE_WRAP_T, RL_WRAP_CLAMP);
+    //glGenTextures(1, &_shadowMap.depth.id);
+    //glBindTexture(GL_TEXTURE_2D, _shadowMap.depth.id);
+    //glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, width, height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
+    _shadowMap.depth.id = rlLoadTextureDepth(width, height, false);
     rlTextureParameters(_shadowMap.depth.id, RL_TEXTURE_MIN_FILTER, RL_FILTER_LINEAR);
     rlTextureParameters(_shadowMap.depth.id, RL_TEXTURE_MAG_FILTER, RL_FILTER_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, _shadowMap.depth.id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    float borderColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glBindTexture(GL_TEXTURE_2D, 0);
     rlFramebufferAttach(_shadowMap.id, _shadowMap.depth.id, RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_TEXTURE2D);
 
     rlDisableFramebuffer();

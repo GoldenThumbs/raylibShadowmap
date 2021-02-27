@@ -1,5 +1,8 @@
 #version 330
 
+#define M_PI 3.14159265358979323846
+#define M_TWOPI 6.283185307179586
+
 // Input vertex attributes (from vertex shader)
 in vec3 fragPosition;
 in vec3 fragNormal;
@@ -23,26 +26,44 @@ const vec2 texelSize = 1.0 / vec2(2048);
 const float lightRadius = 6.0;
 const float ambient = 0.01;
 
+const int taps = 9;
+
+const vec2 kernel[9] = vec2[](
+	vec2( 1, 0), vec2( 0, 1),
+    vec2(-1, 0), vec2( 0,-1),
+    vec2(.8,-.8), vec2(.8, .8),
+    vec2(-.8,.8), vec2(-.8,-.8),
+    vec2(0, 0)
+);
+
+float rand(vec2 co){
+    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+}
+
 float ShadowCalc(vec4 p, float bias)
 {
     vec3 projCoords = p.xyz / p.w;
     projCoords = projCoords * 0.5 + 0.5;
     float depth = projCoords.z - bias;
 
+    float random = rand(p.xy/texelSize) * M_TWOPI;
+    vec2 rot;
+    rot.x = cos(random);
+    rot.y = sin(random);
+
     float shadow = 0;
 
-    for (int x = -1; x <= 1; x++)
-    for (int y = -1; y <= 1; y++)
+    for (int i = 0; i < taps; i++)
     {
         vec3 shadowCoord;
-        shadowCoord.xy = projCoords.xy + vec2(x, y) * texelSize;
+        shadowCoord.xy = projCoords.xy + (kernel[i] + rot) * texelSize;
         shadowCoord.z = depth;
         // Because we are using a shadow sampler, the texture function takes a vec3
         // xy = shadow coords (special texture coordinates that transform the shadowmap)
         // z = depth transformed to light-space (we compare the shadowmap depth values to this)
         shadow += texture(texture0, shadowCoord);
     }
-    return shadow / 9.0;
+    return shadow / float(taps);
 }
 
 void main()
@@ -57,7 +78,7 @@ void main()
     float nDl = max(dot(n, l), 0.0);
     float nDh = max(dot(n, h), 0.0);
 
-    float bias = max(0.001 * (1.0 - nDl), 0.0005); // Use slope bias unless constant bias is larger
+    float bias = max(0.001 * (1.0 - nDl), 0.0001); // Use slope bias unless constant bias is larger
     float shadow = ShadowCalc(fragPosLS, bias);
 
     float dist = length(lRAW);
