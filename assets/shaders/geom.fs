@@ -29,11 +29,18 @@ const float ambient = 0.01;
 const int taps = 9;
 
 const vec2 kernel[9] = vec2[](
+    vec2(0, 0),
 	vec2( 1, 0), vec2( 0, 1),
     vec2(-1, 0), vec2( 0,-1),
     vec2(.8,-.8), vec2(.8, .8),
-    vec2(-.8,.8), vec2(-.8,-.8),
-    vec2(0, 0)
+    vec2(-.8,.8), vec2(-.8,-.8)
+);
+const float weight[9] = float[](
+    1.0,
+	0.5, 0.5,
+    0.5, 0.5,
+    0.25, 0.25,
+    0.25, 0.25
 );
 
 float rand(vec2 co){
@@ -52,18 +59,24 @@ float ShadowCalc(vec4 p, float bias)
     rot.y = sin(random);
 
     float shadow = 0;
+    float wTotal = 0;
 
     for (int i = 0; i < taps; i++)
     {
+        float w = weight[i];
         vec3 shadowCoord;
-        shadowCoord.xy = projCoords.xy + (kernel[i] + rot) * texelSize;
+        shadowCoord.xy = projCoords.xy + (kernel[i] + rot) * 0.001;
         shadowCoord.z = depth;
         // Because we are using a shadow sampler, the texture function takes a vec3
         // xy = shadow coords (special texture coordinates that transform the shadowmap)
         // z = depth transformed to light-space (we compare the shadowmap depth values to this)
-        shadow += texture(texture0, shadowCoord);
+        shadow += texture(texture0, shadowCoord)*w;
+        wTotal += w;
     }
-    return shadow / float(taps);
+    shadow /= wTotal;
+    if(projCoords.z > 1.0)
+        shadow = 1.0;
+    return shadow;
 }
 
 void main()
