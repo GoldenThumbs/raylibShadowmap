@@ -53,10 +53,12 @@ float ShadowCalc(vec4 p, float bias)
     projCoords = projCoords * 0.5 + 0.5;
     float depth = projCoords.z - bias;
 
-    float random = rand(p.xy/texelSize) * M_TWOPI;
-    vec2 rot;
-    rot.x = cos(random);
-    rot.y = sin(random);
+    // offset pattern math taken from: 
+    // https://developer.nvidia.com/gpugems/gpugems/part-ii-lighting-and-shadows/chapter-11-shadow-map-antialiasing
+    vec2 offset = step(fract(gl_FragCoord.xy * 0.5), vec2(0.25));
+    offset.y += offset.x;
+    if (offset.y > 1.1)
+        offset.y = 0;
 
     float shadow = 0;
     float wTotal = 0;
@@ -65,7 +67,7 @@ float ShadowCalc(vec4 p, float bias)
     {
         float w = weight[i];
         vec3 shadowCoord;
-        shadowCoord.xy = projCoords.xy + (kernel[i] + rot) * 0.001;
+        shadowCoord.xy = projCoords.xy + (kernel[i] + offset) * texelSize;
         shadowCoord.z = depth;
         // Because we are using a shadow sampler, the texture function takes a vec3
         // xy = shadow coords (special texture coordinates that transform the shadowmap)
