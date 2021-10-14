@@ -50,7 +50,10 @@ int main()
 		// ----- UPDATE -----
 		float delta = GetFrameTime();
 
-		caster.transform.rotation = QuaternionFromEuler(((float)sin(GetTime()) * 45.0f + -45.0f) * DEG2RAD, 0, 0);
+		caster.transform.position.x = (float)sin(GetTime());
+		caster.transform.position.z = (float)cos(GetTime());
+		caster.transform.position.y = (float)sin(GetTime() * 2.0f) * 0.5f + 1.25f;
+		caster.transform.rotation = QuaternionFromMatrix(MatrixLookAt(caster.transform.position, (Vector3){ 0, 0.5f, 0 }, (Vector3){ 0, 1, 0 }));
 
 		camRot = Vector2Add(camRot, Vector2Scale(GetMouseDelta(), 0.5));
 		camRot.y = Clamp(camRot.y, -90.0f, 90.0f);
@@ -77,16 +80,20 @@ int main()
 
 
 		// ----- RENDER -----
+			// ----- SHADOW -----
 		ShadowMapBegin(shadow);
 		CameraBegin(caster);
 			groundPlane.materials[0].shader = shader_shadow;
 			mainModel.materials[0].shader = shader_shadow;
+			DrawModel(groundPlane, (Vector3){ 0, 0, 0 }, 1.0f, WHITE);
 			DrawModel(mainModel, (Vector3){ 0, 0.5, 0 }, 1.0f, RED);
 		CameraEnd();
 		ShadowMapEnd();
+			// ------------------
 
+			// ----- SCENE -----
 		BeginDrawing();
-		ClearBackground(DARKGRAY);
+			ClearBackground(DARKGRAY);
 		CameraBegin(camera);
 			float cutoff = cosf(DEG2RAD * caster.fov * 0.46f);
 			SetShaderValue(shader_model, shader_model_lightPos, (float*)&caster.transform.position, SHADER_UNIFORM_VEC3);
@@ -112,6 +119,7 @@ int main()
 			DrawTextureEx(shadow.depth, (Vector2){ 0, 0 }, 0.0f, 0.25f, WHITE);
 		EndShaderMode();
 		EndDrawing();
+			// -----------------
 		// ------------------
     }
 
