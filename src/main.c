@@ -1,7 +1,7 @@
 #include <stdio.h>
 
-#define RL_CULL_DISTANCE_FAR 50
 #include <raylib.h>
+#include <rlgl.h>
 #include <raymath.h>
 
 #include "EngineCore.h"
@@ -13,96 +13,114 @@ int main()
     options.title = "Engine Test";
     options.width = 1600;
     options.height = 850;
+	double screenAspect = (double)options.width / (double)options.height;
 
     Engine engine = { 0 };
     ENGINE_init(&engine, &options);
+	DisableCursor();
 
-    Camera3D camera = { 0 };
-    camera.fovy = 65.0;
-    camera.position = (Vector3){ 0, 0.5, 0 };
-    camera.target = (Vector3){ 0, 0.5, -1 };
-    camera.up = (Vector3){ 0, 1, 0 };
-    camera.type = CAMERA_PERSPECTIVE;
-    SetCameraMode(camera, CAMERA_FIRST_PERSON);
+	CCamera camera = { 0 };
+	InitCamera(&camera, (Vector3){ 0.0, 0.5, 0.0 }, (Vector3){ 0.0, 0.0, 0.0 }, 90.0f, 0.1f, 100.0f, screenAspect, false);
+
+	CCamera caster = { 0 };
+	InitCamera(&caster, (Vector3){ 0, 1, 1 }, (Vector3){ -45, 0, 0 }, 90.0f, 0.01f, 10.0f, 1.0, false);
+
+	ShadowMap shadow = LoadShadowMap(1024, 1024);
+
+	Shader shader_shadow = LoadShader(ASSETS_PATH"shaders/shadow.vs", ASSETS_PATH"shaders/shadow.fs");
+
+	Shader shader_model = LoadShader(ASSETS_PATH"shaders/geom.vs", ASSETS_PATH"shaders/geom.fs");
+	shader_model.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(shader_model, "shadowMap");
+	shader_model.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader_model, "viewPos");
+	int shader_model_matLight = GetShaderLocation(shader_model, "matLight");
+	int shader_model_lightPos = GetShaderLocation(shader_model, "lightPos");
+	int shader_model_lightDir = GetShaderLocation(shader_model, "lightDir");
+	int shader_model_lightCutoff = GetShaderLocation(shader_model, "lightCutoff");
+
+	Shader shader_depth = LoadShader(0, ASSETS_PATH"shaders/depth.fs");
 
     Model groundPlane = LoadModelFromMesh(GenMeshPlane(10, 10, 1, 1));
     Model mainModel = LoadModelFromMesh(GenMeshKnot(1.0, 0.5, 32, 128));
 
-    ShadowMap groundShadow = LoadShadowMap(2048, 2048);
-
-    Camera3D shadowCam = { 0 };
-    shadowCam.fovy = 90.0;
-    shadowCam.position = (Vector3){ 2.5, 1, 1 };
-    shadowCam.target = (Vector3){ 0, 0.5, 0 };
-    shadowCam.up = (Vector3){ 0, 0, -1 };
-    shadowCam.type = CAMERA_PERSPECTIVE;
-
-    Shader shadowShader = LoadShader(ASSETS_PATH"shaders/shadow.vs", 0);
-    shadowShader.locs[LOC_MATRIX_MODEL] = GetShaderLocation(shadowShader, "matModel");
-    int matLightLoc0 = GetShaderLocation(shadowShader, "matLight");
-
-    groundPlane.materials[0].maps[0].texture = groundShadow.depth;
-    mainModel.materials[0].maps[0].texture = groundShadow.depth;
-
-    Shader mainShader = LoadShader(ASSETS_PATH"shaders/geom.vs", ASSETS_PATH"shaders/geom.fs");
-    mainShader.locs[LOC_MATRIX_MODEL] = GetShaderLocation(mainShader, "matModel");
-    mainShader.locs[LOC_VECTOR_VIEW] = GetShaderLocation(mainShader, "viewPos");
-    int lightPosLoc = GetShaderLocation(mainShader, "lightPos");
-    int matLightLoc1 = GetShaderLocation(mainShader, "matLight");
-
-    groundPlane.materials[0].shader = mainShader;
-    mainModel.materials[0].shader = mainShader;
-
-    Shader depthDisplayShader = LoadShader(0, ASSETS_PATH"shaders/depth.fs");
-
     SetTargetFPS(60);
 
+	Vector2 camRot = (Vector2){ 0, 0 };
     while (!WindowShouldClose())
-    {
-        UpdateCamera(&camera);
-        SetShaderValue(mainShader, mainShader.locs[LOC_VECTOR_VIEW], (float*)&camera.position, UNIFORM_VEC3);
+    {	
+		// ----- UPDATE -----
+		float delta = GetFrameTime();
 
-        shadowCam.position.y += (float)sin(GetTime()) * 0.025f;
+		caster.transform.rotation = QuaternionFromEuler(((float)sin(GetTime()) * 45.0f + -45.0f) * DEG2RAD, 0, 0);
 
-        SetShaderValue(mainShader, lightPosLoc, (float*)&shadowCam.position, UNIFORM_VEC3);
+		camRot = Vector2Add(camRot, Vector2Scale(GetMouseDelta(), 0.5));
+		camRot.y = Clamp(camRot.y, -90.0f, 90.0f);
+		camera.transform.rotation = QuaternionFromEuler(-camRot.y*DEG2RAD, -camRot.x*DEG2RAD, 0);
 
-        Matrix LightMatrix = MatrixMultiply(MatrixLookAt(shadowCam.position, shadowCam.target, shadowCam.up),
-                             MatrixPerspective(shadowCam.fovy*DEG2RAD, 1.0, 0.1, 50));
-        SetShaderValueMatrix(shadowShader, matLightLoc0, LightMatrix);
-        SetShaderValueMatrix(mainShader, matLightLoc1, LightMatrix);
+		Vector3 velocity = (Vector3){ 0, 0, 0 };
+		if (IsKeyDown(KEY_W))
+			velocity = Vector3Add(velocity, (Vector3){ 0, 0,-1 });
+		if (IsKeyDown(KEY_S))
+			velocity = Vector3Add(velocity, (Vector3){ 0, 0, 1 });
+		if (IsKeyDown(KEY_A))
+			velocity = Vector3Add(velocity, (Vector3){-1, 0, 0 });
+		if (IsKeyDown(KEY_D))
+			velocity = Vector3Add(velocity, (Vector3){ 1, 0, 0 });
+		velocity = Vector3Normalize(velocity);
+		camera.transform.position = Vector3Add(camera.transform.position, Vector3RotateByQuaternion(Vector3Scale(velocity, delta*5.0f), QuaternionFromEuler(0, -camRot.x*DEG2RAD, 0)) );
 
-        ShadowMapBegin(groundShadow);
-            BeginMode3D(shadowCam);
-                // ShaderMode doesn't work on 3D geometry :(
-                mainModel.materials[0].shader = shadowShader;
-                DrawModel(mainModel, (Vector3){ 0, 0.5, 0 }, 1.0f, RED);
-            EndMode3D();
-        ShadowMapEnd();
+		CalcCamera(&camera);
+		CalcCamera(&caster);
 
-        BeginDrawing();
-            ClearBackground(SKYBLUE);
-            
-            BeginMode3D(camera);
-                mainModel.materials[0].shader = mainShader;
-                DrawModel(mainModel, (Vector3){ 0, 0.5, 0 }, 1.0f, RED);
-                DrawModel(groundPlane, Vector3Zero(), 1.0f, WHITE);
-                DrawCube(shadowCam.position, 0.25, 0.25, 0.25, YELLOW);
-            EndMode3D();
+		Matrix matLight = MatrixMultiply(caster.view, caster.projection);
+		Vector3 casterDir = Vector3RotateByQuaternion((Vector3){ 0, 0, -1 }, caster.transform.rotation);
+		// ------------------
 
-            BeginShaderMode(depthDisplayShader);
-                DrawTexturePro(groundShadow.depth, (Rectangle){ 0, 0, (float)groundShadow.width, (float)groundShadow.height },
-                (Rectangle){ 0, 0, 256, 256 }, Vector2Zero(), 0, WHITE);
-            EndShaderMode();
-            DrawText("SHADOWMAP", 10, 256, 24, YELLOW);
-        EndDrawing();
+
+		// ----- RENDER -----
+		ShadowMapBegin(shadow);
+		CameraBegin(caster);
+			groundPlane.materials[0].shader = shader_shadow;
+			mainModel.materials[0].shader = shader_shadow;
+			DrawModel(mainModel, (Vector3){ 0, 0.5, 0 }, 1.0f, RED);
+		CameraEnd();
+		ShadowMapEnd();
+
+		BeginDrawing();
+		ClearBackground(DARKGRAY);
+		CameraBegin(camera);
+			float cutoff = cosf(DEG2RAD * caster.fov * 0.46f);
+			SetShaderValue(shader_model, shader_model_lightPos, (float*)&caster.transform.position, SHADER_UNIFORM_VEC3);
+			SetShaderValue(shader_model, shader_model_lightDir, (float*)&casterDir, SHADER_UNIFORM_VEC3);
+			SetShaderValue(shader_model, shader_model_lightCutoff, &cutoff, SHADER_UNIFORM_FLOAT);
+			SetShaderValueMatrix(shader_model, shader_model_matLight, matLight);
+			SetShaderValue(shader_model, shader_model.locs[SHADER_LOC_VECTOR_VIEW], (float*)&camera.transform.position, SHADER_UNIFORM_VEC3);
+
+			groundPlane.materials[0].maps[MATERIAL_MAP_ALBEDO].texture = shadow.depth;
+			mainModel.materials[0].maps[MATERIAL_MAP_ALBEDO].texture = shadow.depth;
+
+			groundPlane.materials[0].shader = shader_model;
+			mainModel.materials[0].shader = shader_model;
+			DrawModel(groundPlane, (Vector3){ 0, 0, 0 }, 1.0f, WHITE);
+			DrawModel(mainModel, (Vector3){ 0, 0.5, 0 }, 1.0f, RED);
+
+			Vector3 endPos = Vector3Scale(casterDir, 0.5f);
+			endPos = Vector3Add(caster.transform.position, endPos);
+			DrawCubeWires(caster.transform.position, 0.125f, 0.125f, 0.125f, YELLOW);
+			DrawLine3D(caster.transform.position, endPos, LIME);
+		CameraEnd();
+		BeginShaderMode(shader_depth);
+			DrawTextureEx(shadow.depth, (Vector2){ 0, 0 }, 0.0f, 0.25f, WHITE);
+		EndShaderMode();
+		EndDrawing();
+		// ------------------
     }
 
     UnloadModel(groundPlane);
     UnloadModel(mainModel);
-    UnloadShadowMap(groundShadow);
-    UnloadShader(shadowShader);
-    UnloadShader(mainShader);
-    UnloadShader(depthDisplayShader);
+	UnloadShadowMap(shadow);
+	UnloadShader(shader_shadow);
+	UnloadShader(shader_model);
+	UnloadShader(shader_depth);
 
     ENGINE_free(&engine);
 }

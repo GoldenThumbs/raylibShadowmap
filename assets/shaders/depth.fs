@@ -8,7 +8,7 @@ out vec4 finalColor;
 uniform sampler2D texture0;
 
 const float nearClip = 0.1;
-const float farClip = 50.0;
+const float farClip = 100.0;
 
 float LinearizeDepth(float depth)
 {
@@ -18,7 +18,9 @@ float LinearizeDepth(float depth)
 
 void main()
 {
-    float depth = LinearizeDepth(texture(texture0, fragTexCoord).r);
+	vec2 uv = fragTexCoord;
+	uv.y = 1.0-uv.y;
+    float depth = LinearizeDepth(texture(texture0, uv).r);
     finalColor.rgb = vec3(depth) / farClip;
     finalColor.a = 1.0;
 }

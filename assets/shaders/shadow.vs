@@ -4,10 +4,9 @@
 in vec3 vertexPosition;
 
 // Input uniform values
-uniform mat4 matModel;
-uniform mat4 matLight;
+uniform mat4 mvp;
 
 void main()
 {
-    gl_Position = matLight * matModel * vec4(vertexPosition, 1.0);
+    gl_Position = mvp * vec4(vertexPosition, 1.0);
 }

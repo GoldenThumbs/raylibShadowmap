@@ -8,6 +8,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 # --- raylib options ---
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
+set(OPENGL_VERSION "3.3" CACHE STRING "" FORCE)
 # ----------------------
 
 add_subdirectory(libs/raylib)

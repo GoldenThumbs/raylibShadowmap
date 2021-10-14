@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include <rlgl.h>
-#include <external/glad.h>
+#include <raymath.h>
 
 #include "Graphics.h"
 
@@ -37,35 +37,90 @@ void GRAPHICS_free(Graphics *graphics)
     CloseWindow();
 }
 
+void InitTransform(Transform3D *transform, Vector3 position, Vector3 rotation, float scale)
+{
+	transform->position = position;
+	transform->rotation = QuaternionFromEuler(rotation.x*DEG2RAD, rotation.y*DEG2RAD, rotation.z*DEG2RAD);
+	transform->scale = (Vector3){ scale, scale, scale };
+	CalcTransform(transform);
+}
+
+void CalcTransform(Transform3D *transform)
+{
+	Matrix position = MatrixTranslate(transform->position.x, transform->position.y, transform->position.z);
+	Matrix rotation = QuaternionToMatrix(transform->rotation);
+	Matrix scale = MatrixScale(transform->scale.x, transform->scale.y, transform->scale.z);
+	transform->world = MatrixMultiply(MatrixMultiply(scale, rotation), position);
+}
+
+void InitCamera(CCamera *camera, Vector3 position, Vector3 rotation, float fov, float near, float far, double aspect, bool ortho)
+{
+	camera->transform.position = position;
+	camera->transform.rotation = QuaternionFromEuler(rotation.x*DEG2RAD, rotation.y*DEG2RAD, rotation.z*DEG2RAD);
+	camera->transform.scale = (Vector3){ 1, 1, 1 };
+	camera->fov = fov;
+	camera->nearClip = near;
+	camera->farClip = far;
+	camera->aspect = aspect;
+	camera->orthographic = ortho;
+	CalcCamera(camera);
+}
+
+void CalcCamera(CCamera *camera)
+{
+	CalcTransform(&camera->transform);
+	camera->view = MatrixInvert(camera->transform.world);
+	if (camera->orthographic)
+	{
+		double top = camera->fov/2.0;
+		double right = top*camera->aspect;
+		camera->projection = MatrixOrtho(-right, right, -top, top, camera->nearClip, camera->farClip);
+	}else
+		camera->projection = MatrixPerspective(camera->fov*DEG2RAD, camera->aspect, camera->nearClip, camera->farClip);
+}
+
+void CameraBegin(CCamera camera)
+{
+	rlDrawRenderBatchActive();
+
+	rlMatrixMode(RL_PROJECTION);
+	rlPushMatrix();
+	rlLoadIdentity();
+
+	rlMultMatrixf(MatrixToFloat(camera.projection));
+
+	rlMatrixMode(RL_MODELVIEW);
+	rlLoadIdentity();
+
+	rlMultMatrixf(MatrixToFloat(camera.view));
+
+	rlEnableDepthTest();
+}
+
+void CameraEnd()
+{
+	EndMode3D();
+}
+
 ShadowMap LoadShadowMap(int width, int height)
 {
     ShadowMap _shadowMap;
 
-    _shadowMap.depth.id = 0;
-    _shadowMap.depth.width = width;
-    _shadowMap.depth.height = height;
-    _shadowMap.depth.format = 19;
-    _shadowMap.depth.mipmaps = 0;
-
-    _shadowMap.id = rlLoadFramebuffer(width, height);
+	_shadowMap.id = rlLoadFramebuffer(width, height);
     _shadowMap.width = width;
     _shadowMap.height = height;
 
-    //glGenTextures(1, &_shadowMap.depth.id);
-    //glBindTexture(GL_TEXTURE_2D, _shadowMap.depth.id);
-    //glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, width, height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
-    _shadowMap.depth.id = rlLoadTextureDepth(width, height, false);
-    rlTextureParameters(_shadowMap.depth.id, RL_TEXTURE_MIN_FILTER, RL_FILTER_LINEAR);
-    rlTextureParameters(_shadowMap.depth.id, RL_TEXTURE_MAG_FILTER, RL_FILTER_LINEAR);
-    glBindTexture(GL_TEXTURE_2D, _shadowMap.depth.id);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    float borderColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    rlFramebufferAttach(_shadowMap.id, _shadowMap.depth.id, RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_TEXTURE2D);
+	rlEnableFramebuffer(_shadowMap.id);
+	
+	_shadowMap.depth.id = rlLoadTextureDepth(width, height, false);
+    _shadowMap.depth.width = width;
+    _shadowMap.depth.height = height;
+    _shadowMap.depth.format = 19;
+    _shadowMap.depth.mipmaps = 1;
+
+    rlTextureParameters(_shadowMap.depth.id, RL_TEXTURE_WRAP_S, RL_TEXTURE_WRAP_CLAMP);
+    rlTextureParameters(_shadowMap.depth.id, RL_TEXTURE_WRAP_T, RL_TEXTURE_WRAP_CLAMP);
+    rlFramebufferAttach(_shadowMap.id, _shadowMap.depth.id, RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_TEXTURE2D, 0);
 
     rlDisableFramebuffer();
 
@@ -80,37 +135,43 @@ void UnloadShadowMap(ShadowMap shadowMap)
 
 void ShadowMapBegin(ShadowMap shadowMap)
 {
-    rlglDraw();
-    rlEnableFramebuffer(shadowMap.id);
+    rlDrawRenderBatchActive();
+	rlEnableFramebuffer(shadowMap.id);
 
-    rlClearScreenBuffers();
+	rlClearScreenBuffers();
 
-    rlViewport(0, 0, shadowMap.width, shadowMap.height);
+	// Set viewport to framebuffer size
+	rlViewport(0, 0, shadowMap.width, shadowMap.height);
 
-    rlMatrixMode(RL_PROJECTION);
-    rlLoadIdentity();
+	rlMatrixMode(RL_PROJECTION);        // Switch to projection matrix
+	rlLoadIdentity();                   // Reset current matrix (projection)
 
-    rlOrtho(0, shadowMap.width, shadowMap.height, 0, 0.0f, 1.0f);
+	// Set orthographic projection to current framebuffer size
+	// NOTE: Configured top-left corner as (0, 0)
+	rlOrtho(0, shadowMap.width, shadowMap.height, 0, 0, 1);
 
-    rlMatrixMode(RL_MODELVIEW);
-    rlLoadIdentity();
+	rlMatrixMode(RL_MODELVIEW);         // Switch back to modelview matrix
+	rlLoadIdentity();                   // Reset current matrix (modelview)
 
-    ClearBackground(WHITE);
+	rlClearColor(255, 255, 255, 255);
+	rlDisableColorBlend();
 }
 
 void ShadowMapEnd()
 {
-    rlglDraw();
-        
-    rlDisableFramebuffer();
-    
-    rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
-    
-    rlMatrixMode(RL_PROJECTION);
-    rlLoadIdentity();
-    
-    rlOrtho(0, GetScreenWidth(), GetScreenHeight(), 0, 0, 1);
-    
-    rlMatrixMode(RL_MODELVIEW);
-    rlLoadIdentity();
+    rlEnableColorBlend();
+	rlDisableTexture();
+
+	rlDrawRenderBatchActive();
+	rlDisableFramebuffer();
+
+	rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
+
+	rlMatrixMode(RL_PROJECTION);
+	rlLoadIdentity();
+	
+	rlOrtho(0, GetScreenWidth(), GetScreenHeight(), 0, 0, 1);
+	
+	rlMatrixMode(RL_MODELVIEW);
+	rlLoadIdentity();
 }
